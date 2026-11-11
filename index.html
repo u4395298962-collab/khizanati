@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>خزانتي</title>
+<style>
+  body{font-family:sans-serif;margin:0;background:#f4f1fa;color:#222}
+  .wrap{max-width:480px;margin:auto;padding:16px}
+  h1{text-align:center}
+  button{background:#6c3fc5;color:#fff;border:0;border-radius:10px;padding:12px 16px;font-size:16px}
+  input,select{width:100%;padding:12px;margin:6px 0;border:1px solid #ccc;border-radius:10px;font-size:16px;box-sizing:border-box}
+  .row{display:flex;gap:8px}
+  .item{background:#fff;border-radius:10px;padding:10px 14px;margin:8px 0;display:flex;justify-content:space-between;align-items:center}
+  .item small{color:#777;display:block}
+  .del{background:#e5484d;padding:6px 10px}
+  .center{text-align:center}
+  #modal{display:none;position:fixed;inset:0;background:#0008;align-items:center;justify-content:center}
+  #modal .box{background:#fff;border-radius:14px;padding:20px;width:80%;max-width:360px;line-height:2}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>👗 خزانتي</h1>
+
+  <div id="login" class="center">
+    <p>سجّل ملابسك بالأسماء وخلي التطبيق يقترح عليك أوتفيت</p>
+    <button id="btnLogin">تسجيل الدخول بجوجل</button>
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="row" style="align-items:center;justify-content:space-between">
+      <span id="who"></span>
+      <button id="btnOut" style="background:#888">خروج</button>
+    </div>
+
+    <input id="name" placeholder="سمية القطعة (مثلا: قميص أبيض)">
+    <div class="row">
+      <select id="cat">
+        <option value="top">فوق (قميص / تيشورت / سويتر)</option>
+        <option value="bottom">تحت (سروال / جيب)</option>
+        <option value="shoes">صباط</option>
+        <option value="outer">جاكيت / معطف</option>
+        <option value="acc">إكسسوار</option>
+      </select>
+      <button id="btnAdd">زيد</button>
+    </div>
+
+    <button id="btnSuggest" style="width:100%;margin:10px 0">✨ اقترح أوتفيت</button>
+    <div id="list"></div>
+  </div>
+</div>
+
+<div id="modal"><div class="box">
+  <h3>أوتفيت اليوم 👗</h3>
+  <div id="result"></div>
+  <div class="row" style="margin-top:10px">
+    <button id="again">واحد آخر</button>
+    <button id="close" style="background:#888">تمام</button>
+  </div>
+</div></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD358-yDRT4pF196Qe86e0M80PYC29NHtk",
+  authDomain: "khizanati-ecbdc.firebaseapp.com",
+  projectId: "khizanati-ecbdc",
+  storageBucket: "khizanati-ecbdc.firebasestorage.app",
+  messagingSenderId: "754485751232",
+  appId: "1:754485751232:web:61dc9b6d84aedb3052ac25"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const labels = {top:"فوق", bottom:"تحت", shoes:"صباط", outer:"جاكيت", acc:"إكسسوار"};
+let items = [], unsub = null;
+
+$("btnLogin").onclick = async () => {
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (e) { alert("خطأ: " + e.message); }
+};
+$("btnOut").onclick = () => signOut(auth);
+
+onAuthStateChanged(auth, user => {
+  if (unsub) { unsub(); unsub = null; }
+  if (!user) {
+    $("login").style.display = "block";
+    $("app").style.display = "none";
+    return;
+  }
+  $("login").style.display = "none";
+  $("app").style.display = "block";
+  $("who").textContent = "مرحبا " + (user.displayName || "");
+  const q = query(collection(db, "users", user.uid, "items"), orderBy("createdAt", "desc"));
+  unsub = onSnapshot(q, snap => {
+    items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render(user.uid);
+  });
+});
+
+function render(uid) {
+  const list = $("list");
+  list.innerHTML = "";
+  if (!items.length) { list.innerHTML = '<p class="center">الخزانة خاوية، زيد ملابسك</p>'; return; }
+  items.forEach(it => {
+    const div = document.createElement("div");
+    div.className = "item";
+    const info = document.createElement("div");
+    const b = document.createElement("b"); b.textContent = it.name;
+    const s = document.createElement("small"); s.textContent = labels[it.cat] || "";
+    info.append(b, s);
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "🗑";
+    del.onclick = () => deleteDoc(doc(db, "users", uid, "items", it.id));
+    div.append(info, del);
+    list.append(div);
+  });
+}
+
+$("btnAdd").onclick = async () => {
+  const name = $("name").value.trim();
+  if (!name) return;
+  await addDoc(collection(db, "users", auth.currentUser.uid, "items"),
+    { name, cat: $("cat").value, createdAt: serverTimestamp() });
+  $("name").value = "";
+};
+
+function suggest() {
+  const lines = [];
+  for (const c of ["top", "bottom", "shoes", "outer", "acc"]) {
+    const l = items.filter(i => i.cat === c);
+    if (l.length) lines.push("• " + labels[c] + ": " + l[Math.floor(Math.random() * l.length)].name);
+  }
+  $("result").textContent = "";
+  (lines.length ? lines : ["زيد شي ملابس بالأول!"]).forEach(t => {
+    const p = document.createElement("div"); p.textContent = t; $("result").append(p);
+  });
+  $("modal").style.display = "flex";
+}
+$("btnSuggest").onclick = suggest;
+$("again").onclick = suggest;
+$("close").onclick = () => $("modal").style.display = "none";
+</script>
+</body>
+</html>
